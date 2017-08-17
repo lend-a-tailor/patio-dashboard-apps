@@ -105,7 +105,8 @@ Ext.define("ATApp", {
     _updateData: function() {
         var me = this;
         this.metric = "size";
-        this.timebox_type = 'Iteration';
+
+        //console.log("timebox_type", this.timebox_type);
         
         Deft.Chain.pipeline([
             this._fetchTimeboxes,
@@ -189,19 +190,33 @@ Ext.define("ATApp", {
         var first_date = timeboxes[0].get(start_field);
         var last_date = timeboxes[timeboxes.length - 1].get(end_field);
         
-        var filters = [
+        // Create filter for records with an AcceptedDate
+
+        var filter = Ext.create('Rally.data.wsapi.Filter', {
+            property: 'AcceptedDate', operator: '!=', value: null
+        });
+
+        // Or a filter for records with c_OriginalAcceptedDate
+
+        var orFilter = filter.or(Ext.create('Rally.data.wsapi.Filter', {
+            property: 'c_OriginalAcceptedDate', operator: '!=', value: null
+        }));
+
+        var filters = Rally.data.wsapi.Filter.and([
             {property: type + '.' + start_field, operator: '>=', value:first_date},
             {property: type + '.' + end_field, operator: '<=', value:last_date},
-            {property:'AcceptedDate', operator: '!=', value: null }
-        ];
-        this.logger.log('IN_fetchArtifactsInTimeboxes', filters); 
+            orFilter
+        ]);
+
+        this.logger.log('IN_fetchArtifactsInTimeboxes', filters.toString());
         
         var config = {
             model:'HierarchicalRequirement',
             limit: Infinity,
             filters: filters,
             fetch: ['FormattedID','Name','ScheduleState','Iteration','ObjectID',
-                'PlanEstimate','Project','Release','AcceptedDate',start_field,end_field]
+                'PlanEstimate', 'Project', 'Release', 'AcceptedDate', 'c_OriginalAcceptedDate',
+                start_field, end_field]
         };
         
         Deft.Chain.sequence([
@@ -232,8 +247,19 @@ Ext.define("ATApp", {
             fib_types = this.fib_types;
 
         var artifacts_with_timings = [];
+        var timeBox = this.timebox_type;
+
         Ext.Array.each(items,function(artifact){
-            var accepted_sprint_day = Rally.technicalservices.util.Utilities.daysBetween(artifact.get('Iteration').StartDate,artifact.get('AcceptedDate'),false);
+
+            // This is where the original accepted date will be used unless it is null in which case the Accepted date will be used
+            var accDate = artifact.get('c_OriginalAcceptedDate') != null ? artifact.get('c_OriginalAcceptedDate') : artifact.get('AcceptedDate');
+
+            if (timeBox === "Release") {
+                var accepted_sprint_day = Rally.technicalservices.util.Utilities.daysBetween(artifact.get('Release').ReleaseStartDate, accDate, false);
+            } else {
+                var accepted_sprint_day = Rally.technicalservices.util.Utilities.daysBetween(artifact.get('Iteration').StartDate, accDate, false);
+            }
+
             artifacts_with_timings.push({'artifact':artifact,'accepted_sprint_day':accepted_sprint_day});
         });
 
